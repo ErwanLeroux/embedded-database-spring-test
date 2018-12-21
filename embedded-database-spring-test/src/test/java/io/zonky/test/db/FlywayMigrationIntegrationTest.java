@@ -27,19 +27,26 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import javax.sql.DataSource;
 import java.util.List;
 import java.util.Map;
 
+import static io.zonky.test.db.AutoConfigureEmbeddedDatabase.DatabaseProvider.DOCKER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.assertj.core.api.Assertions.tuple;
 
 @RunWith(SpringRunner.class)
 @Category(FlywayIntegrationTests.class)
-@AutoConfigureEmbeddedDatabase(beanName = "dataSource")
+@AutoConfigureEmbeddedDatabase(beanName = "dataSource", provider = DOCKER)
+@TestPropertySource(properties = {
+        "embedded-database.prefetching.concurrency=3",
+        "embedded-database.prefetching.pipeline-cache-size=3",
+        "embedded-database.postgres.docker.tmpfs.enabled=true",
+})
 @ContextConfiguration
 public class FlywayMigrationIntegrationTest {
 

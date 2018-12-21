@@ -18,6 +18,7 @@ package io.zonky.test.db;
 
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 import org.flywaydb.core.Flyway;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.postgresql.ds.PGSimpleDataSource;
@@ -35,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @RunWith(SpringRunner.class)
 @AutoConfigureEmbeddedDatabase(beanName = "dataSource")
 @ContextConfiguration
+@Ignore
 public class DatabaseCustomizerIntegrationTest {
 
     @Configuration

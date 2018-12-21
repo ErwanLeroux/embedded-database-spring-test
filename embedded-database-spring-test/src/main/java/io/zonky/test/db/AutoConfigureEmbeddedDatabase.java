@@ -60,7 +60,9 @@ public @interface AutoConfigureEmbeddedDatabase {
      *
      * @return the type of an embedded database
      */
-    EmbeddedDatabaseType type() default EmbeddedDatabaseType.POSTGRES;
+    DatabaseType type() default DatabaseType.POSTGRES;
+
+    DatabaseProvider provider() default DatabaseProvider.DEFAULT;
 
     /**
      * What the test database can replace.
@@ -82,12 +84,22 @@ public @interface AutoConfigureEmbeddedDatabase {
     /**
      * A supported embedded database type.
      */
-    enum EmbeddedDatabaseType {
+    enum DatabaseType {
 
         /**
-         * The Embedded PostgreSQL Database
+         * PostgreSQL Database
          */
         POSTGRES
+
+    }
+
+    enum DatabaseProvider {
+
+        DEFAULT,
+
+        DOCKER,
+
+        MAVEN
 
     }
 }

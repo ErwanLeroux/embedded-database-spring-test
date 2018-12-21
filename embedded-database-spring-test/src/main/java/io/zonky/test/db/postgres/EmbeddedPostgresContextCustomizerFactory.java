@@ -16,13 +16,16 @@
 
 package io.zonky.test.db.postgres;
 
-import com.google.common.collect.ImmutableMap;
 import io.zonky.test.db.AutoConfigureEmbeddedDatabase;
-import io.zonky.test.db.AutoConfigureEmbeddedDatabase.EmbeddedDatabaseType;
+import io.zonky.test.db.AutoConfigureEmbeddedDatabase.DatabaseProvider;
 import io.zonky.test.db.AutoConfigureEmbeddedDatabase.Replace;
 import io.zonky.test.db.flyway.DefaultFlywayDataSourceContext;
 import io.zonky.test.db.flyway.FlywayClassUtils;
 import io.zonky.test.db.flyway.FlywayDataSourceContext;
+import io.zonky.test.db.provider.DefaultDatabaseProvider;
+import io.zonky.test.db.provider.DockerPostgresDatabaseProvider;
+import io.zonky.test.db.provider.MavenPostgresDatabaseProvider;
+import io.zonky.test.db.provider.PrefetchingDatabaseProvider;
 import org.apache.commons.lang3.StringUtils;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.test.annotation.FlywayTest;
@@ -33,6 +36,7 @@ import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinitionHolder;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.RuntimeBeanReference;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
 import org.springframework.beans.factory.support.RootBeanDefinition;
@@ -46,11 +50,16 @@ import org.springframework.test.context.ContextConfigurationAttributes;
 import org.springframework.test.context.ContextCustomizer;
 import org.springframework.test.context.ContextCustomizerFactory;
 import org.springframework.test.context.MergedContextConfiguration;
+import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
 
 import javax.sql.DataSource;
 import java.lang.reflect.AnnotatedElement;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import static io.zonky.test.db.AutoConfigureEmbeddedDatabase.DatabaseType;
 
 /**
  * Implementation of the {@link org.springframework.test.context.ContextCustomizerFactory} interface,
@@ -71,7 +80,7 @@ public class EmbeddedPostgresContextCustomizerFactory implements ContextCustomiz
         AutoConfigureEmbeddedDatabase databaseAnnotation = AnnotatedElementUtils.findMergedAnnotation(testClass, AutoConfigureEmbeddedDatabase.class);
 
         if (databaseAnnotation != null
-                && databaseAnnotation.type() == EmbeddedDatabaseType.POSTGRES
+                && databaseAnnotation.type() == DatabaseType.POSTGRES
                 && databaseAnnotation.replace() != Replace.NONE) {
             return new PreloadableEmbeddedPostgresContextCustomizer(databaseAnnotation);
         }
@@ -89,7 +98,7 @@ public class EmbeddedPostgresContextCustomizerFactory implements ContextCustomiz
 
         @Override
         public void customizeContext(ConfigurableApplicationContext context, MergedContextConfiguration mergedConfig) {
-            context.addBeanFactoryPostProcessor(new EnvironmentPostProcessor(context.getEnvironment()));
+            context.addBeanFactoryPostProcessor(new EnvironmentPostProcessor(context.getEnvironment(), databaseAnnotation.provider()));
 
             Class<?> testClass = mergedConfig.getTestClass();
             FlywayTest[] flywayAnnotations = findFlywayTestAnnotations(testClass);
@@ -106,6 +115,7 @@ public class EmbeddedPostgresContextCustomizerFactory implements ContextCustomiz
             registry.registerBeanDefinition("preloadableEmbeddedPostgresRegistrar", registrarDefinition);
         }
 
+        // TODO
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
@@ -117,6 +127,7 @@ public class EmbeddedPostgresContextCustomizerFactory implements ContextCustomiz
             return databaseAnnotation.equals(that.databaseAnnotation);
         }
 
+        // TODO
         @Override
         public int hashCode() {
             return databaseAnnotation.hashCode();
@@ -126,16 +137,24 @@ public class EmbeddedPostgresContextCustomizerFactory implements ContextCustomiz
     protected static class EnvironmentPostProcessor implements BeanDefinitionRegistryPostProcessor {
 
         private final ConfigurableEnvironment environment;
+        private final DatabaseProvider databaseProvider;
 
-        public EnvironmentPostProcessor(ConfigurableEnvironment environment) {
+        public EnvironmentPostProcessor(ConfigurableEnvironment environment, DatabaseProvider databaseProvider) {
             this.environment = environment;
+            this.databaseProvider = databaseProvider;
         }
 
         @Override
         public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) throws BeansException {
+            Map<String, Object> map = new HashMap<>();
+            map.put("spring.test.database.replace", "NONE");
+
+            if (databaseProvider != DatabaseProvider.DEFAULT) {
+                map.put("embedded-database.provider", databaseProvider.toString());
+            }
+
             environment.getPropertySources().addFirst(new MapPropertySource(
-                    PreloadableEmbeddedPostgresContextCustomizer.class.getSimpleName(),
-                    ImmutableMap.of("spring.test.database.replace", "NONE")));
+                    PreloadableEmbeddedPostgresContextCustomizer.class.getSimpleName(), map));
         }
 
         @Override
@@ -156,7 +175,34 @@ public class EmbeddedPostgresContextCustomizerFactory implements ContextCustomiz
 
         @Override
         public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) throws BeansException {
+            Assert.isInstanceOf(ConfigurableListableBeanFactory.class, registry,
+                    "Embedded Database Auto-configuration can only be used with a ConfigurableListableBeanFactory");
             ConfigurableListableBeanFactory beanFactory = (ConfigurableListableBeanFactory) registry;
+
+            // ---- TODO ----
+            // MAKE THE FOLLOWING BEANS CONDITIONAL BY NAME
+            RootBeanDefinition dockerPostgresProviderDefinition = new RootBeanDefinition();
+            dockerPostgresProviderDefinition.setBeanClass(DockerPostgresDatabaseProvider.class);
+            dockerPostgresProviderDefinition.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_CONSTRUCTOR);
+            registry.registerBeanDefinition("dockerPostgresProvider", dockerPostgresProviderDefinition);
+
+            RootBeanDefinition mavenPostgresProviderDefinition = new RootBeanDefinition();
+            mavenPostgresProviderDefinition.setBeanClass(MavenPostgresDatabaseProvider.class);
+            mavenPostgresProviderDefinition.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_CONSTRUCTOR);
+            registry.registerBeanDefinition("mavenPostgresProvider", mavenPostgresProviderDefinition);
+
+            RootBeanDefinition defaultDatabaseServiceDefinition = new RootBeanDefinition();
+            defaultDatabaseServiceDefinition.setBeanClass(DefaultDatabaseProvider.class);
+            defaultDatabaseServiceDefinition.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_CONSTRUCTOR);
+            registry.registerBeanDefinition("defaultDatabaseService", defaultDatabaseServiceDefinition);
+
+            RootBeanDefinition prefetchingDatabaseServiceDefinition = new RootBeanDefinition();
+            prefetchingDatabaseServiceDefinition.setBeanClass(PrefetchingDatabaseProvider.class);
+            defaultDatabaseServiceDefinition.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_CONSTRUCTOR);
+            prefetchingDatabaseServiceDefinition.getConstructorArgumentValues().addIndexedArgumentValue(0, new RuntimeBeanReference("defaultDatabaseService"));
+            prefetchingDatabaseServiceDefinition.setPrimary(true);
+            registry.registerBeanDefinition("prefetchingDatabaseService", prefetchingDatabaseServiceDefinition);
+            // ---- TODO ----
 
             BeanDefinitionHolder dataSourceInfo = getDataSourceBeanDefinition(beanFactory, databaseAnnotation);
 
